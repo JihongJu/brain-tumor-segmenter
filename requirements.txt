@@ -1,0 +1,4 @@
+nibabeal==2.1.0
+pydicom==0.9.9
+medpy==0.2.2
+SimpleITK==0.10.0

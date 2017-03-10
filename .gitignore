@@ -87,3 +87,8 @@ ENV/
 
 # Rope project settings
 .ropeproject
+
+# medical data
+*.mha
+BRATS2015_Training
+BRATS2015_Test
