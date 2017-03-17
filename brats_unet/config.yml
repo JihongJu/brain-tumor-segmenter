@@ -1,0 +1,37 @@
+volume_image_data_generator:
+    train: 
+        pixelwise_center: True
+        pixel_mean: 0.25
+        pixelwise_normalization: True
+        pixel_bounds:
+            - -1000
+            - 400
+        target_shape:
+            - 240
+            - 240
+            - 155
+        data_augmentation: True
+    test:
+        pixelwise_center: True
+        pixel_mean: 0.25
+        pixelwise_normalization: True
+        pixel_bounds:
+            - -1000
+            - 400
+        target_shape:
+            - 240
+            - 240
+            - 155
+        data_augmentation: False
+    flow_from_loader:
+        class_mode: "segmentation"
+        nb_classes: 5
+        batch_size: 1
+        shuffle: True
+volume_image_data_loader:
+    train:
+        image_dir: "data/BRATS2015_Training"
+        image_format: "mha"
+        split: "train"
+        test_size: 0.2
+        random_state: 42

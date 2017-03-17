@@ -1,0 +1,50 @@
+volume_image_data_generator:
+    train: 
+        voxelwise_center: True
+        voxel_mean: 0.5
+        voxelwise_std_normalization: True
+        voxelwise_std: 1.
+        target_shape:
+            - 240
+            - 240
+            - 155
+        data_augmentation: True
+    test:
+        voxelwise_center: True
+        voxel_mean: 0.5
+        voxelwise_std_normalization: True
+        voxelwise_std: 1.
+        target_shape:
+            - 240
+            - 240
+            - 155
+        data_augmentation: False
+    flow_from_loader:
+        class_mode: "segmentation"
+        nb_classes: 5
+        batch_size: 1
+        shuffle: True
+brats_data_loader:
+    train:
+        image_dir: "data/BRATS2015_Training"
+        image_format: "mha"
+        split: "train"
+        test_size: 0.2
+        random_state: 42
+    val:
+        image_dir: "data/BRATS2015_Training"
+        image_format: "mha"
+        split: "val"
+        test_size: 0.2
+        random_state: 42
+    trainval:
+        image_dir: "data/BRATS2015_Training"
+        image_format: "mha"
+        split: "trainval"
+        random_state: 42
+    test:
+        image_dir: "data/BRATS2015_Testing"
+        image_format: "mha"
+        split: "test"
+        random_state: 42
+
