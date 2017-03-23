@@ -1,10 +1,10 @@
+"""Volume Image generator."""
 from __future__ import (absolute_import, division,
                         print_function, unicode_literals)
 import os
 import abc
 import scipy
 import numpy as np
-import pandas as pd
 import keras.backend as K
 from keras.utils.np_utils import to_categorical
 from keras.preprocessing.image import Iterator
@@ -13,11 +13,30 @@ from imblearn.under_sampling import RandomUnderSampler
 
 
 class VolumeImageDataGenerator(object):
+    """Volume image data generator
+    # Arguments
+        image_shape: 3D/4D image shape tuple in the format of
+            (dim1, dim2, dim3) for single-channel images,
+            (dim1, dim2, dim3, channel) for multi-channel images
+            with tensorflow backend
+            or (channel, dim1, dim2, dim3) with theano backend.
+        image_resample: True if samplewise resampling
+            (subsampling and/or interpolation) is required
+            to achieve the target_shape, and False otherwise
+        samplewise_center:
+        samplewise_std_normalization:
+        voxelwise_center: substract the voxel mean of the whole dataset
+        voxel_mean: dataset_mean (e.g. 0.25 for LUNA2016)
+        voxelwise_normalization: scaled by voxel_bounds
+        voxel_bounds: tuple of voxel bounds (min_bound, max_bound)
+        imlearn_resampler: resampler for imbalanced dataset {None, 'rus'}
+        data_augmentation: {True, False, None}
+        dim_ordering: Keras image_dim_ordering {'tf', 'th', 'default'}
+    """
 
     def __init__(self,
-                 image_shape=None,
-                 target_shape=None,
-                 samplewise_resample=None,
+                 image_shape,
+                 image_resample=None,
                  voxelwise_center=None,
                  voxel_mean=None,
                  voxelwise_std_normalization=None,
@@ -30,34 +49,7 @@ class VolumeImageDataGenerator(object):
                  preprocessing_function=None,
                  data_augmentation=None,
                  dim_ordering='default'):
-        """
-        # Arguments
-            image_shape: 3D/4D image shape tuple in the format of
-                (dim1, dim2, dim3) for single-channel images,
-                (dim1, dim2, dim3, channel) for multi-channel images
-                with tensorflow backend
-                or (channel, dim1, dim2, dim3) with theano backend.
-                It will be overwritten by target_shape when input images
-                are of different sizes.
-            target_shape: 3D/4D target size for the variant shape images.
-                (dim1, dim2, dim3) for single-channel images,
-                (dim1, dim2, dim3, channel) for multi-channel images
-                with tensorflow backend
-                or (channel, dim1, dim2, dim3) with theano backend.
-                It will overwrite image_shape if target_shape is set.
-            samplewise_resample: True if samplewise resampling
-                (subsampling and/or interpolation) is required
-                to achieve the target_shape, and False otherwise
-            samplewise_center:
-            samplewise_std_normalization:
-            voxelwise_center: substract the voxel mean of the whole dataset
-            voxel_mean: dataset_mean (e.g. 0.25 for LUNA2016)
-            voxelwise_normalization: scaled by voxel_bounds
-            voxel_bounds: tuple of voxel bounds (min_bound, max_bound)
-            imlearn_resampler: resampler for imbalanced dataset {None, 'rus'}
-            data_augmentation: {True, False, None}
-            dim_ordering: Keras image_dim_ordering {'tf', 'th', 'default'}
-        """
+
         # image_dim_ordering
         if dim_ordering == 'default':
             dim_ordering = K.image_dim_ordering()
@@ -78,38 +70,22 @@ class VolumeImageDataGenerator(object):
             self.dim3_axis = 3
         self.dim_ordering = dim_ordering
 
-        # image_shape
-        if image_shape and len(image_shape) not in {3, 4}:
+        # fixed image_shape
+        if len(image_shape) not in {3, 4}:
             raise ValueError('image_shape needs to be 3 dimensions for '
                              'single-channel volume image data, or 4 '
                              'dimensions for multi-channel data. '
                              'Got {} dimensions'.format(
                                  len(image_shape)))
-        if image_shape and len(image_shape) == 3:
+        if len(image_shape) == 3:
             if self.dim_ordering == 'tf':
                 self.image_shape = tuple(image_shape) + (1,)
             else:
                 self.image_shape = (1,) + tuple(image_shape)
-        elif image_shape and len(image_shape) == 4:
+        elif len(image_shape) == 4:
             self.image_shape = self.image_shape
-        # target_shape
-        if target_shape and len(target_shape) not in {3, 4}:
-            raise ValueError('target_shape needs to be 3 dimensions for '
-                             'single-channel volume image data, or 4 '
-                             'dimensions for multi-channel data. '
-                             'Got {} dimensions'.format(
-                                 len(target_shape)))
-        if target_shape and len(target_shape) == 3:
-            if self.dim_ordering == 'tf':
-                self.target_shape = tuple(target_shape) + (1,)
-            else:
-                self.target_shape = (1,) + tuple(target_shape)
-            self.image_shape = self.target_shape
-        elif target_shape and len(target_shape) == 4:
-            self.target_shape = self.target_shape
-            self.image_shape = self.target_shape
-        self.samplewise_resample = samplewise_resample
 
+        self.image_resample = image_resample
         self.voxelwise_center = voxelwise_center
         self.voxel_mean = voxel_mean
         self.voxelwise_std_normalization = voxelwise_std_normalization
@@ -141,6 +117,11 @@ class VolumeImageDataGenerator(object):
     def standardize(self, x):
         """standardize inputs including featurewise/samplewise
         center/normalization, etc."""
+        if not self.image_resample:
+            x = to_shape(x, self.image_shape, constant_values=-1024)
+        elif self.image_resample:
+            x = resample(x, self.image_shape)
+
         if self.preprocessing_function:
             x = self.preprocessing_function(x)
         if self.voxelwise_normalization:
@@ -151,10 +132,6 @@ class VolumeImageDataGenerator(object):
                 x -= self.voxel_mean
         if self.voxelwise_std_normalization:
             x /= (self.voxelwise_std + 1e-7)
-        if self.target_shape and not self.samplewise_resample:
-            x = to_shape(x, self.target_shape, constant_values=-1024)
-        elif self.target_shape and self.samplewise_resample:
-            x = samplewise_resample(x, self.target_shape)
         if self.samplewise_center:
             x -= np.mean(x, axis=self.channel_axis, keepdims=True)
         if self.samplewise_std_normalization:
@@ -162,18 +139,16 @@ class VolumeImageDataGenerator(object):
         return x
 
     def random_transform(self, x):
-        """random transforms including flipping"""
+        """Random transforms including flipping."""
         pass
 
     def standardize_dense_labels(self, y):
-        """Standardize dense labels
-        """
-        if self.target_shape and not self.samplewise_resample:
-            y = to_shape(y, self.target_shape, constant_values=0)
-        elif self.target_shape and self.samplewise_resample:
-            y = samplewise_resample(y, self.target_shape, mode='nearest')
+        """Standardize dense labels."""
+        if self.image_shape and not self.image_resample:
+            y = to_shape(y, self.image_shape, constant_values=0)
+        elif self.image_shape and self.image_resample:
+            y = resample(y, self.image_shape, mode='nearest')
         return y
-
 
 
 class VolumeImageLoaderIterator(Iterator):
@@ -196,11 +171,15 @@ class VolumeImageLoaderIterator(Iterator):
         if imlearn_resampler:
             self.patients_imbalanced = self.patients.copy()
             self.classes_imbalanced = self.classes.copy()
-	if imlearn_resampler == 'rus':
+
+        if imlearn_resampler == 'rus':
             self.resampler = RandomUnderSampler()
 
-        super(VolumeImageLoaderIterator, self).__init__(self.nb_sample, batch_size,
-                                                   shuffle, seed)
+        super(VolumeImageLoaderIterator, self).__init__(self.nb_sample,
+                                                        batch_size,
+                                                        shuffle,
+                                                        seed)
+
     def reset(self):
         # ensure self.batch_index is 0
         self.batch_index = 0
@@ -221,20 +200,28 @@ class VolumeImageLoaderIterator(Iterator):
             # standardize goes here
             x = self.volume_image_data_generator.standardize(x)
             batch_x[i] = x
+
         # build batch of labels
         if self.class_mode == 'sparse':
             batch_y = self.classes[index_array]
         elif self.class_mode == 'binary':
             batch_y = self.classes[index_array].astype(K.floatx())
         elif self.class_mode == 'categorical':
-            batch_y = to_categorical(self.classes[index_array], self.nb_classes)
+            batch_y = to_categorical(self.classes[index_array],
+                                     self.nb_classes)
         elif self.class_mode == 'segmentation':
-            batch_y = np.zeros((current_batch_size,) + self.image_shape,
-                           dtype=np.int16)
+            label_shape = list(self.image_shape)
+            label_shape[self.volume_image_data_generator.channel_axis - 1] \
+                = self.nb_classes
+            label_shape = tuple(label_shape)
+            batch_y = np.zeros((current_batch_size,) + label_shape,
+                               dtype=np.int8)
             for i, j in enumerate(index_array):
                 patient = self.classes[j]
                 y = self.volume_image_data_loader.load_label(patient)
-                y = self.volume_image_data_generator.standardize_dense_labels(y)
+                y = self.volume_image_data_generator\
+                        .standardize_dense_labels(y)
+                y = to_categorical(y, self.nb_classes).reshape(label_shape)
                 batch_y[i] = y
 
         return batch_x, batch_y
@@ -269,10 +256,12 @@ class VolumeImageDataLoader(object):
         self.test_size = test_size
 
         self.patients, self.classes = self.get_patients_classes()
-        if not len(self.patients) == len(self.classes) and not self.split == 'test':
+        if not len(self.patients) == len(self.classes) \
+                and not self.split == 'test':
             raise ValueError('Number of patients needs to match number of '
-                    'classes. Got {} vs. {}'.format(len(self.patients),
-                                                    len(self.classes)))
+                             'classes. Got {} vs. {}'.format(
+                                 len(self.patients),
+                                 len(self.classes)))
 
         self.image_format = image_format
         white_list_formats = {'dcm', 'nii', 'npy', 'h5', 'mha'}
@@ -292,7 +281,8 @@ class VolumeImageDataLoader(object):
         if test_size:
             patients_train, patients_test, classes_train, classes_test \
                 = train_test_split(self.patients, self.classes,
-                        test_size=test_size, random_state=random_state)
+                                   test_size=test_size,
+                                   random_state=random_state)
             if self.split == 'train':
                 self.patients = patients_train
                 self.classes = classes_train
@@ -305,23 +295,18 @@ class VolumeImageDataLoader(object):
         self.save_format = save_format
 
     @abc.abstractmethod
+    def get_patients_classes(self):
+        """Get patients and classes altogethre (Abstract)."""
+        patients = self.get_patients()
+        classes = self.get_classes()
+        return patients, classes
+
+    @abc.abstractmethod
     def get_patients(self):
         """Image patients loading method. (Abstract)
         (the following is an example)
         """
-        try:
-            df_labels = pd.read_csv(self.label_dir)
-        except IOError:
-            raise
-        return df_labels['id'].values
-
-    @abc.abstractmethod
-    def get_patients_classes(self):
-        """Get patients and classes altogethre (Abstract)
-        """
-        patients = self.get_patients()
-        classes = self.get_classes()
-        return patients, classes
+        return
 
     @abc.abstractmethod
     def get_classes(self):
@@ -333,15 +318,11 @@ class VolumeImageDataLoader(object):
         # Returns
             classes: vector of classes/labels/pointers
         """
-        try:
-            df_labels = pd.read_csv(self.label_dir)
-        except IOError:
-            raise
-        return df_labels['cancer'].values.astype('int')
+        return
 
     @abc.abstractmethod
     def load(self, p):
-        """Image series loading method given a filename (Abstract)
+        """Image series loading method given a filename (Abstract).
         # Arguments
             p: patient id
         # Returns
@@ -355,7 +336,7 @@ class VolumeImageDataLoader(object):
 
     @abc.abstractmethod
     def load_label(self, pr):
-        """Dense labels loading methods given pointers to them (Abstract)
+        """Dense labels loading methods given pointers to them (Abstract).
         # Arguments
             p: pointers to the dense labels
         # Returns
@@ -377,8 +358,7 @@ def voxelwise_normalize(image, voxel_bounds):
 
 
 def to_shape(arr, target_shape,  constant_values=0):
-    """Pad and/or crop arrays to the target_shape
-    """
+    """Pad and/or crop arrays to the target_shape."""
     # pad
     padded = pad(arr, target_shape)
     # crop
@@ -389,16 +369,17 @@ def to_shape(arr, target_shape,  constant_values=0):
     return cropped
 
 
-def samplewise_resample(self, image, target_shape, mode='nearest'):
+def resample(self, image, target_shape, mode='nearest'):
     """Resample the image to target_shape
     """
     resize_factor = image.shape / np.array(target_shape)
     resampled = scipy.ndimage.interpolation.zoom(image, resize_factor,
-                                             mode=mode)
+                                                 mode=mode)
     return resampled
 
 
 def pad(arr, target_shape, constant_values=0):
+    """Pad image to target shape."""
     arr_shape = arr.shape
     npad = ()
     for dim in range(len(arr_shape)):
@@ -410,13 +391,13 @@ def pad(arr, target_shape, constant_values=0):
             before = 0
             after = 0
         npad += ((before, after),)
-    padded = np.pad(arr, pad_width=npad,
-                     mode='constant',
-                     constant_values=constant_values)
+    padded = np.pad(arr, pad_width=npad, mode='constant',
+                    constant_values=constant_values)
     return padded
 
 
 def crop(arr, target_shape):
+    """Crop image to targe shape."""
     arr_shape = arr.shape
     ncrop = ()
     for dim in range(len(arr_shape)):
@@ -429,4 +410,3 @@ def crop(arr, target_shape):
             ncrop += np.index_exp[:]
     cropped = arr[ncrop]
     return cropped
-

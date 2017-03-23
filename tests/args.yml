@@ -1,20 +1,20 @@
 volume_image_data_generator:
-    train: 
+    train:
         voxelwise_center: True
-        voxel_mean: 0.5
+        voxel_mean: 0.
         voxelwise_std_normalization: True
         voxelwise_std: 1.
-        target_shape:
+        image_shape:
             - 240
             - 240
             - 155
         data_augmentation: True
     test:
         voxelwise_center: True
-        voxel_mean: 0.5
+        voxel_mean: 0.
         voxelwise_std_normalization: True
         voxelwise_std: 1.
-        target_shape:
+        image_shape:
             - 240
             - 240
             - 155
@@ -47,4 +47,3 @@ brats_data_loader:
         image_format: "mha"
         split: "test"
         random_state: 42
-
